@@ -19,18 +19,112 @@ function injectArrow(player) {
   arrow.style.cursor = 'pointer';
   arrow.style.zIndex = '10000';
   arrow.style.boxShadow = '-2px 0 8px rgba(0,0,0,0.2)'; // Shadow on the left
-  arrow.style.transition = 'all 0.2s ease';
+  arrow.style.transition = 'background 0.2s ease, box-shadow 0.2s ease';
+  arrow.style.userSelect = 'none'; // Prevent text selection during drag
   
-  // Add hover effect
+  let isDragging = false;
+  let hasMoved = false;
+  let startY = 0;
+  let startTop = 0;
+  const dragThreshold = 5; // pixels - minimum movement to count as drag
+  
+  // Add hover effect (only when not dragging)
   arrow.addEventListener('mouseenter', () => {
-    arrow.style.background = 'rgba(160, 132, 232, 0.95)';
-    arrow.style.transform = 'translateY(-50%) translateX(-2px)'; // Slide out slightly
+    if (!isDragging) {
+      arrow.style.background = 'rgba(160, 132, 232, 0.95)';
+      arrow.style.boxShadow = '-3px 0 12px rgba(0,0,0,0.3)';
+    }
   });
   
   arrow.addEventListener('mouseleave', () => {
-    arrow.style.background = 'rgba(160, 132, 232, 0.8)';
-    arrow.style.transform = 'translateY(-50%) translateX(0)';
+    if (!isDragging) {
+      arrow.style.background = 'rgba(160, 132, 232, 0.8)';
+      arrow.style.boxShadow = '-2px 0 8px rgba(0,0,0,0.2)';
+    }
   });
+  
+  // Click/Drag functionality
+  arrow.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    hasMoved = false;
+    startY = e.clientY;
+    
+    // Get the actual current position of the arrow
+    const rect = arrow.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+    startTop = rect.top - playerRect.top + (arrow.offsetHeight / 2);
+    
+    e.preventDefault();
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const deltaY = Math.abs(e.clientY - startY);
+    
+    // Only start visual dragging if moved beyond threshold
+    if (deltaY > dragThreshold && !hasMoved) {
+      hasMoved = true;
+      arrow.style.cursor = 'grabbing';
+      arrow.style.transition = 'none'; // Disable transitions during drag
+      arrow.style.background = 'rgba(160, 132, 232, 1)';
+    }
+    
+    // Only update position if we've moved beyond threshold
+    if (hasMoved) {
+      const totalDeltaY = e.clientY - startY;
+      let newTop = startTop + totalDeltaY;
+      
+      // Constrain to player bounds
+      const arrowHeight = arrow.offsetHeight;
+      const minTop = arrowHeight / 2;
+      const maxTop = player.offsetHeight - (arrowHeight / 2);
+      
+      newTop = Math.max(minTop, Math.min(maxTop, newTop));
+      
+      arrow.style.top = newTop + 'px';
+      arrow.style.transform = 'translateY(-50%)';
+    }
+    
+    e.preventDefault();
+  });
+  
+  document.addEventListener('mouseup', (e) => {
+    if (!isDragging) return;
+    
+    isDragging = false;
+    
+    // If we didn't move much, treat it as a click
+    if (!hasMoved) {
+      handleArrowClick();
+    } else {
+      // Save position to storage after drag
+      const currentTop = parseInt(arrow.style.top);
+      const playerHeight = player.offsetHeight;
+      const percentage = (currentTop / playerHeight) * 100;
+      chrome.storage.sync.set({ viddyArrowPosition: percentage });
+    }
+    
+    // Reset visual state
+    arrow.style.cursor = 'pointer';
+    arrow.style.transition = 'background 0.2s ease, box-shadow 0.2s ease';
+    arrow.style.background = 'rgba(160, 132, 232, 0.8)';
+    
+    hasMoved = false;
+  });
+  
+  // Handle what happens when arrow is clicked
+  function handleArrowClick() {
+    console.log('Viddy arrow clicked!');
+    // Add your click functionality here
+    // For example: open a modal, trigger an action, etc.
+    
+    // Temporary visual feedback for click
+    arrow.style.background = 'rgba(160, 132, 232, 1)';
+    setTimeout(() => {
+      arrow.style.background = 'rgba(160, 132, 232, 0.8)';
+    }, 150);
+  }
   
   // Left-pointing arrow SVG
   arrow.innerHTML = `
@@ -38,6 +132,15 @@ function injectArrow(player) {
       <polyline points="15 18 9 12 15 6" />
     </svg>
   `;
+  
+  // Restore saved position
+  chrome.storage.sync.get(['viddyArrowPosition'], (result) => {
+    if (result.viddyArrowPosition !== undefined) {
+      const savedTop = (result.viddyArrowPosition / 100) * player.offsetHeight;
+      arrow.style.top = savedTop + 'px';
+    }
+  });
+  
   player.style.position = 'relative';
   player.appendChild(arrow);
 }
