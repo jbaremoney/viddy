@@ -7,21 +7,35 @@ function injectArrow(player) {
   arrow.id = 'viddy-arrow';
   arrow.style.position = 'absolute';
   arrow.style.top = '50%';
-  arrow.style.right = '8px';
+  arrow.style.right = '0px'; // Attached to the right edge
   arrow.style.transform = 'translateY(-50%)';
-  arrow.style.width = '32px';
-  arrow.style.height = '32px';
-  arrow.style.background = 'rgba(160, 132, 232, 0.7)';
-  arrow.style.borderRadius = '50%';
+  arrow.style.width = '40px';
+  arrow.style.height = '28px';
+  arrow.style.background = 'rgba(160, 132, 232, 0.8)';
+  arrow.style.borderRadius = '8px 0 0 8px'; // Rounded left side only
   arrow.style.display = 'flex';
   arrow.style.alignItems = 'center';
   arrow.style.justifyContent = 'center';
   arrow.style.cursor = 'pointer';
   arrow.style.zIndex = '10000';
-  arrow.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+  arrow.style.boxShadow = '-2px 0 8px rgba(0,0,0,0.2)'; // Shadow on the left
+  arrow.style.transition = 'all 0.2s ease';
+  
+  // Add hover effect
+  arrow.addEventListener('mouseenter', () => {
+    arrow.style.background = 'rgba(160, 132, 232, 0.95)';
+    arrow.style.transform = 'translateY(-50%) translateX(-2px)'; // Slide out slightly
+  });
+  
+  arrow.addEventListener('mouseleave', () => {
+    arrow.style.background = 'rgba(160, 132, 232, 0.8)';
+    arrow.style.transform = 'translateY(-50%) translateX(0)';
+  });
+  
+  // Left-pointing arrow SVG
   arrow.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="9 18 15 12 9 6" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 18 9 12 15 6" />
     </svg>
   `;
   player.style.position = 'relative';

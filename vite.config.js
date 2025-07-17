@@ -9,9 +9,9 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         { src: 'manifest.json', dest: '.' },
-        { src: 'images', dest: '.' }
-  
-        // If you have *static*, hand-written scripts (not bundled by Vite), list them here
+        { src: 'images', dest: '.' },
+        { src: 'content', dest: '.' },
+        { src: 'background', dest: '.' }
       ]
     })
   ],
@@ -19,11 +19,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: './popup/popup.html'
-        // add more .html entry points if needed
       }
     },
     outDir: 'dist',
     emptyOutDir: true,
   },
 });
-
