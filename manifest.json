@@ -1,0 +1,19 @@
+{
+    "name": "Viddy",
+    "description": "Cursor for youtube vids",
+    "version": "0.99",
+    "manifest_version": 3,
+    "permissions": ["activeTab", "scripting", "storage"],
+    "host_permissions": ["https://www.youtube.com/*"],
+    "action": {
+        "default_popup": "popup/popup.html",
+        "default_icon": "images/viddylogo2.png"
+    },
+    "icons": {
+        "16": "images/viddy16.png",
+        "32": "images/viddy32.png",
+        "48": "images/viddy48.png",
+        "128": "images/viddy128.png"
+    } 
+}
+     
