@@ -155,6 +155,31 @@ function createChatWindow(player, arrow) {
   input.style.fontSize = '14px';
   input.style.outline = 'none';
   
+  // Prevent YouTube keyboard shortcuts when typing
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // Prevent event from bubbling up to YouTube
+  });
+  
+  input.addEventListener('keyup', (e) => {
+    e.stopPropagation(); // Prevent event from bubbling up to YouTube
+  });
+  
+  input.addEventListener('keypress', (e) => {
+    e.stopPropagation(); // Prevent event from bubbling up to YouTube
+    if (e.key === 'Enter') {
+      sendMessage(input.value, messagesArea, input);
+    }
+  });
+  
+  // Also prevent focus-related issues
+  input.addEventListener('focus', (e) => {
+    e.stopPropagation();
+  });
+  
+  input.addEventListener('blur', (e) => {
+    e.stopPropagation();
+  });
+  
   const sendBtn = document.createElement('button');
   sendBtn.textContent = 'Send';
   sendBtn.style.background = '#A084E8';
@@ -172,11 +197,6 @@ function createChatWindow(player, arrow) {
   
   // Event listeners
   sendBtn.addEventListener('click', () => sendMessage(input.value, messagesArea, input));
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      sendMessage(input.value, messagesArea, input);
-    }
-  });
   
   // Assemble chat window
   inputArea.appendChild(input);
@@ -184,6 +204,19 @@ function createChatWindow(player, arrow) {
   chat.appendChild(header);
   chat.appendChild(messagesArea);
   chat.appendChild(inputArea);
+  
+  // Prevent YouTube keyboard shortcuts from affecting the entire chat window
+  chat.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+  });
+  
+  chat.addEventListener('keyup', (e) => {
+    e.stopPropagation();
+  });
+  
+  chat.addEventListener('keypress', (e) => {
+    e.stopPropagation();
+  });
   
   // Special ghost mode interaction
   chat.addEventListener('mouseenter', () => {
@@ -568,13 +601,6 @@ function tryInjectIfEnabled(enabled) {
     if (area === 'sync' && 'viddyEnabled' in changes) {
       const enabled = changes.viddyEnabled.newValue !== false;
       tryInjectIfEnabled(enabled);
-    }
-  });
-  
-  // Close chat when clicking outside
-  document.addEventListener('click', (e) => {
-    if (isChatOpen && chatWindow && !chatWindow.contains(e.target) && !document.getElementById('viddy-arrow').contains(e.target)) {
-      closeChatWindow();
     }
   });
   
