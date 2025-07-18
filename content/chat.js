@@ -1,43 +1,12 @@
-import { injectArrow, removeArrow } from './arrow.js';
-import { chatWindow, isChatOpen, chatDragState, resizeState } from './chat.js';
+// Chat window logic module
+export let chatWindow = null;
+export let isChatOpen = false;
+export let isGhostMode = false;
+export let chatDragState = { isDragging: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 };
+export let resizeState = { isResizing: false, startX: 0, startY: 0, startWidth: 0, startHeight: 0, direction: '' };
 
-console.log('Viddy content script loaded!');
-
-function extractVideoId(url = window.location.href) {
-    console.log('Extracting video ID from:', url);
-    
-    // Handle different YouTube URL formats
-    const patterns = [
-      /[?&]v=([^&]+)/,           // youtube.com/watch?v=ABC
-      /youtu\.be\/([^?&]+)/,      // youtu.be/ABC
-      /embed\/([^?&]+)/,          // youtube.com/embed/ABC
-    ];
-    
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match) {
-        console.log('Found video ID:', match[1]);
-        return match[1];
-      }
-    }
-    console.log('No video ID found in URL');
-    return null;
-}
-
-function getCurrentTimestamp(){
-    const video = document.getElementsByClassName("video-stream")[0];
-    return video ? Math.floor(video.currentTime) : 0;
-}
-
-function createAskPayload(userQuestion){
-    return {
-        video_id: extractVideoId(),
-        current_timestamp: getCurrentTimestamp(), 
-        question: userQuestion
-    };
-}
-
-function createChatWindow(player, arrow) {
+export function createChatWindow(player, arrow) {
+  if (chatWindow) return chatWindow;
   if (chatWindow) return chatWindow;
   
   const chat = document.createElement('div');
@@ -293,7 +262,7 @@ function createChatWindow(player, arrow) {
   return chat;
 }
 
-function createResizeHandles() {
+export function createResizeHandles() {
   const handles = [];
   const directions = [
     { name: 'n', cursor: 'n-resize', style: { top: '0', left: '8px', right: '8px', height: '4px' } },
@@ -325,7 +294,7 @@ function createResizeHandles() {
   return handles;
 }
 
-function startChatDrag(e) {
+export function startChatDrag(e) {
   chatDragState.isDragging = true;
   chatDragState.startX = e.clientX;
   chatDragState.startY = e.clientY;
@@ -338,7 +307,8 @@ function startChatDrag(e) {
   e.preventDefault();
 }
 
-function startResize(e, direction) {
+
+export function startResize(e, direction) {
   resizeState.isResizing = true;
   resizeState.direction = direction;
   resizeState.startX = e.clientX;
@@ -354,7 +324,7 @@ function startResize(e, direction) {
   e.preventDefault();
 }
 
-function toggleGhostMode() {
+export function toggleGhostMode() {
   const messagesArea = chatWindow.querySelector('#viddy-messages');
   
   if (isGhostMode) {
@@ -384,7 +354,7 @@ function toggleGhostMode() {
   }
 }
 
-function toggleMaximize() {
+export function toggleMaximize() {
   const player = document.querySelector('.html5-video-player');
   
   if (chatWindow.dataset.isMaximized === 'true') {
@@ -411,7 +381,7 @@ function toggleMaximize() {
   }
 }
 
-async function sendMessage(message, messagesArea, input) {
+export async function sendMessage(message, messagesArea, input) {
   if (!message.trim()) return;
   
   // Add user message
@@ -464,14 +434,13 @@ async function sendMessage(message, messagesArea, input) {
   }
 }
 
-// Helper function to update an existing message
-function updateMessage(messageElement, newText) {
+export function updateMessage(messageElement, newText) {
   if (messageElement) {
     messageElement.textContent = newText;
   }
 }
 
-function addMessage(messagesArea, text, sender) {
+export function addMessage(messagesArea, text, sender) {
   const message = document.createElement('div');
   message.style.marginBottom = '12px';
   message.style.padding = '8px 12px';
@@ -496,7 +465,7 @@ function addMessage(messagesArea, text, sender) {
   return message; // Return the element so we can update it later
 }
 
-function openChatWindow(player, arrow) {
+export function openChatWindow(player, arrow) {
   if (!chatWindow) {
     createChatWindow(player, arrow);
   }
@@ -511,103 +480,9 @@ function openChatWindow(player, arrow) {
   if (input) input.focus();
 }
 
-function closeChatWindow() {
+export function closeChatWindow() {
   if (chatWindow) {
     chatWindow.style.display = 'none';
     isChatOpen = false;
   }
 }
-
-function tryInjectIfEnabled(enabled) {
-  const player = document.querySelector('.html5-video-player');
-  if (player) {
-    if (enabled) {
-      injectArrow(player);
-    } else {
-      removeArrow();
-    }
-    return true;
-  }
-  return false;
-}
-
-(function main() {
-  chrome.storage.sync.get(['viddyEnabled'], (result) => {
-    const enabled = result.viddyEnabled !== false;
-    if (tryInjectIfEnabled(enabled)) return;
-    const observer = new MutationObserver(() => {
-      if (tryInjectIfEnabled(enabled)) observer.disconnect();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
-
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && 'viddyEnabled' in changes) {
-      const enabled = changes.viddyEnabled.newValue !== false;
-      tryInjectIfEnabled(enabled);
-    }
-  });
-
-  // Global mouse handlers for chat drag and resize
-  document.addEventListener('mousemove', (e) => {
-    if (chatDragState.isDragging) {
-      const deltaX = e.clientX - chatDragState.startX;
-      const deltaY = e.clientY - chatDragState.startY;
-      const newLeft = chatDragState.startLeft + deltaX;
-      const newTop = chatDragState.startTop + deltaY;
-      const player = document.querySelector('.html5-video-player');
-      const playerRect = player.getBoundingClientRect();
-      const chatRect = chatWindow.getBoundingClientRect();
-      const rightPos = playerRect.width - (newLeft - playerRect.left) - chatRect.width;
-      const topPos = newTop - playerRect.top;
-      chatWindow.style.right = Math.max(0, Math.min(playerRect.width - chatRect.width, rightPos)) + 'px';
-      chatWindow.style.top = Math.max(0, Math.min(playerRect.height - chatRect.height, topPos)) + 'px';
-      chatWindow.style.transform = 'none';
-      e.preventDefault();
-    }
-    if (resizeState.isResizing) {
-      const deltaX = e.clientX - resizeState.startX;
-      const deltaY = e.clientY - resizeState.startY;
-      let newWidth = resizeState.startWidth;
-      let newHeight = resizeState.startHeight;
-      let newLeft = resizeState.startLeft;
-      let newTop = resizeState.startTop;
-      const direction = resizeState.direction;
-      if (direction.includes('e')) {
-        newWidth = Math.max(280, Math.min(600, resizeState.startWidth + deltaX));
-      } else if (direction.includes('w')) {
-        newWidth = Math.max(280, Math.min(600, resizeState.startWidth - deltaX));
-        newLeft = resizeState.startLeft + (resizeState.startWidth - newWidth);
-      }
-      if (direction.includes('s')) {
-        newHeight = Math.max(200, resizeState.startHeight + deltaY);
-      } else if (direction.includes('n')) {
-        newHeight = Math.max(200, resizeState.startHeight - deltaY);
-        newTop = resizeState.startTop + (resizeState.startHeight - newHeight);
-      }
-      chatWindow.style.width = newWidth + 'px';
-      chatWindow.style.height = newHeight + 'px';
-      const player = document.querySelector('.html5-video-player');
-      const playerRect = player.getBoundingClientRect();
-      if (direction.includes('w')) {
-        const rightPos = playerRect.width - (newLeft - playerRect.left) - newWidth;
-        chatWindow.style.right = Math.max(0, rightPos) + 'px';
-      }
-      if (direction.includes('n')) {
-        chatWindow.style.top = Math.max(0, newTop - playerRect.top) + 'px';
-        chatWindow.style.transform = 'none';
-      }
-      e.preventDefault();
-    }
-  });
-  document.addEventListener('mouseup', () => {
-    if (chatDragState.isDragging) {
-      chatDragState.isDragging = false;
-      chatWindow.style.transition = 'background 0.2s ease, box-shadow 0.2s ease';
-    }
-    if (resizeState.isResizing) {
-      resizeState.isResizing = false;
-      chatWindow.style.transition = 'background 0.2s ease, box-shadow 0.2s ease';
-    }
-  });
-})();
