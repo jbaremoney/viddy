@@ -8,10 +8,9 @@ let chatDragState = { isDragging: false, startX: 0, startY: 0, startLeft: 0, sta
 let resizeState = { isResizing: false, startX: 0, startY: 0, startWidth: 0, startHeight: 0, direction: '' };
 
 function getOrCreateChatId() {
-    const videoId = extractVideoId()
     let chatId = sessionStorage.getItem('viddy_chat_id');
     if (!chatId) {
-      chatId = `${videoId}_${crypto.randomUUID()}`;
+      chatId = crypto.randomUUID();
       sessionStorage.setItem('viddy_chat_id', chatId);
     }
     return chatId;
@@ -46,6 +45,7 @@ function getCurrentTimestamp(){
 
 function createAskPayload(userPrompt){
     return {
+        videoId: extractVideoId(),
         chatId: getOrCreateChatId(),
         current_timestamp: getCurrentTimestamp(), 
         prompt: userPrompt
