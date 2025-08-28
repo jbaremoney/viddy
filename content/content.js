@@ -6,6 +6,9 @@ let isChatOpen = false;
 let isGhostMode = false;
 let chatDragState = { isDragging: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 };
 let resizeState = { isResizing: false, startX: 0, startY: 0, startWidth: 0, startHeight: 0, direction: '' };
+let currentVideoId = null;
+let isVideoInitializing = false;
+let initStatusPollingInterval = null;
 
 function getOrCreateChatId() {
     let chatId = sessionStorage.getItem('viddy_chat_id');
@@ -15,27 +18,26 @@ function getOrCreateChatId() {
     }
     return chatId;
   }
+
+function createChatId() {
+    const chatId = crypto.randomUUID();
+    sessionStorage.setItem('viddy_chat_id', chatId);
+    return chatId;
+  }
   
 
 function extractVideoId(url = window.location.href) {
-    console.log('Extracting video ID from:', url);
-    
-    // Handle different YouTube URL formats
-    const patterns = [
-      /[?&]v=([^&]+)/,           // youtube.com/watch?v=ABC
-      /youtu\.be\/([^?&]+)/,      // youtu.be/ABC
-      /embed\/([^?&]+)/,          // youtube.com/embed/ABC
-    ];
-    
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match) {
-        console.log('Found video ID:', match[1]);
-        return match[1];
-      }
-    }
-    console.log('No video ID found in URL');
-    return null;
+  const patterns = [
+    /[?&]v=([^&]+)/,                // youtube.com/watch?v=VIDEOID
+    /youtu\.be\/([^?&]+)/,          // youtu.be/VIDEOID
+    /embed\/([^?&]+)/,              // youtube.com/embed/VIDEOID
+    /youtube\.com\/shorts\/([^?&]+)/ // youtube.com/shorts/VIDEOID
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
 function getCurrentTimestamp(){
@@ -43,10 +45,23 @@ function getCurrentTimestamp(){
     return video ? Math.floor(video.currentTime) : 0;
 }
 
-function createAskPayload(userPrompt){
+function createAskPayload(userPrompt, isFirstMessage = false){
+    const videoId = extractVideoId();
+    console.log('[createAskPayload] videoId:', videoId);
+    
+    let chatId;
+    if (isFirstMessage) {
+      // Create new chat ID for first message
+      chatId = createChatId();
+      console.log('[createAskPayload] Created new chat session:', chatId);
+    } else {
+      // Use existing chat ID
+      chatId = getOrCreateChatId();
+    }
+    
     return {
-        videoId: extractVideoId(),
-        chatId: getOrCreateChatId(),
+        videoId,
+        chatId,
         current_timestamp: getCurrentTimestamp(), 
         prompt: userPrompt
     };
@@ -59,7 +74,7 @@ function createChatWindow(player, arrow) {
   chat.id = 'viddy-chat';
   chat.style.position = 'absolute';
   chat.style.right = '45px';
-  chat.style.top = arrow.style.top;
+  chat.style.top = '50%';
   chat.style.transform = 'translateY(-50%)';
   chat.style.width = '350px';
   chat.style.height = '400px';
@@ -76,6 +91,9 @@ function createChatWindow(player, arrow) {
   chat.style.flexDirection = 'column';
   chat.style.overflow = 'hidden';
   chat.style.resize = 'none'; // We'll handle resizing manually
+  chat.style.pointerEvents = 'auto'; // Ensure chat window can receive events
+  chat.style.isolation = 'isolate'; // Create a new stacking context
+  chat.style.contain = 'layout style paint'; // Prevent layout effects on parent
   
   // Chat header (draggable)
   const header = document.createElement('div');
@@ -94,6 +112,7 @@ function createChatWindow(player, arrow) {
   
   const title = document.createElement('span');
   title.textContent = 'Viddy Chat';
+  title.id = 'viddy-chat-title';
   header.appendChild(title);
   
   // Window controls
@@ -430,6 +449,22 @@ function updateMessage(messageElement, newText) {
 async function sendMessage(message, messagesArea, input) {
 if (!message.trim()) return;
 
+// Initialize current video ID if not set
+if (!currentVideoId) {
+  currentVideoId = extractVideoId();
+}
+
+// Check if video is still initializing
+if (isVideoInitializing) {
+  const userMessage = addMessage(messagesArea, message, 'user');
+  input.value = '';
+  const holdMessage = addMessage(messagesArea, "⏳ Hold on bro, video is still initializing...", 'ai');
+  return;
+}
+
+// Check if this is the first message in the session
+const isFirstMessage = !sessionStorage.getItem('viddy_chat_id');
+
 // Add user message
 const userMessage = addMessage(messagesArea, message, 'user');
 input.value = '';
@@ -439,10 +474,11 @@ const loadingMessage = addMessage(messagesArea, "Analyzing video...", 'ai');
 
 try {
     // Create payload with video data
-    const payload = createAskPayload(message);
+    const payload = createAskPayload(message, isFirstMessage);
     
     // Validate we're on a YouTube video
-    if (!payload.video_id) {
+    if (!payload.videoId) {
+    console.log('[sendMessage] No videoId found, payload:', payload, 'window.location.href:', window.location.href);
     updateMessage(loadingMessage, "Please navigate to a YouTube video first.");
     return;
     }
@@ -450,7 +486,7 @@ try {
     console.log('Sending payload:', payload);
     
     // Call your backend
-    const response = await fetch('https://viddy-backend.vercel.app/api/chat', {
+    const response = await fetch('https://viddy-backend.onrender.com/api/chat', {
     method: 'POST',
     headers: {
         'Content-Type': 'application/json',
@@ -517,20 +553,126 @@ function openChatWindow(player, arrow) {
     createChatWindow(player, arrow);
   }
   
-  // Position chat relative to arrow
-  chatWindow.style.top = arrow.style.top;
+  // Ensure the video player maintains its layout
+  const playerRect = player.getBoundingClientRect();
+  const originalPlayerStyle = {
+    position: player.style.position,
+    overflow: player.style.overflow,
+    transform: player.style.transform
+  };
+  
+  // Set player to relative positioning if not already set
+  if (player.style.position !== 'relative') {
+    player.style.position = 'relative';
+  }
+  
+  // Ensure the video player's layout is stable
+  // Don't modify the video element directly to avoid layout issues
+  
+  // Position chat relative to arrow with better positioning logic
+  const arrowTop = arrow.style.top;
+  const arrowHeight = arrow.offsetHeight;
+  const chatHeight = chatWindow.offsetHeight;
+  
+  // Calculate the optimal position to center the chat window relative to the arrow
+  let topPosition;
+  if (arrowTop.includes('%')) {
+    // If arrow is positioned by percentage, maintain that relationship
+    const percentage = parseFloat(arrowTop);
+    topPosition = `${percentage}%`;
+    chatWindow.style.transform = 'translateY(-50%)';
+  } else {
+    // If arrow is positioned by pixels, calculate the center position
+    const arrowTopPx = parseFloat(arrowTop);
+    const playerHeight = player.offsetHeight;
+    
+    // Ensure the chat window stays within the player bounds with some padding
+    const minTop = 10; // Add some padding from the top
+    const maxTop = playerHeight - chatHeight - 10; // Add some padding from the bottom
+    const centerTop = arrowTopPx - (chatHeight / 2);
+    
+    topPosition = Math.max(minTop, Math.min(maxTop, centerTop)) + 'px';
+    chatWindow.style.transform = 'none';
+  }
+  
+  chatWindow.style.top = topPosition;
   chatWindow.style.display = 'flex';
   isChatOpen = true;
+  
+  // Show welcome message based on initialization status
+  const messagesArea = chatWindow.querySelector('#viddy-messages');
+  if (messagesArea && messagesArea.children.length === 0) {
+    if (isVideoInitializing) {
+      addMessage(messagesArea, "⏳ Video is initializing... Please wait a moment before asking questions.", 'ai');
+    } else {
+      addMessage(messagesArea, "👋 Hi! I'm ready to help you with this video. Ask me anything!", 'ai');
+    }
+  }
+  
+  // Add a small delay to ensure stable positioning
+  setTimeout(() => {
+    // Re-check positioning after a brief delay to prevent layout glitches
+    if (chatWindow && isChatOpen) {
+      const currentTop = chatWindow.style.top;
+      const playerHeight = player.offsetHeight;
+      const chatHeight = chatWindow.offsetHeight;
+      
+      // Ensure the chat window is still within bounds
+      if (currentTop.includes('px')) {
+        const topPx = parseFloat(currentTop);
+        const minTop = 10; // Add some padding from the top
+        const maxTop = playerHeight - chatHeight - 10; // Add some padding from the bottom
+        
+        if (topPx < minTop || topPx > maxTop) {
+          const newTop = Math.max(minTop, Math.min(maxTop, topPx));
+          chatWindow.style.top = newTop + 'px';
+        }
+      }
+      
+      // Force a layout recalculation to prevent glitches
+      chatWindow.offsetHeight; // Trigger reflow
+    }
+  }, 50);
   
   // Focus on input
   const input = chatWindow.querySelector('input');
   if (input) input.focus();
 }
 
+function clearChatSession() {
+  // Clear session storage
+  sessionStorage.removeItem('viddy_chat_id');
+  
+  // Stop any ongoing initialization polling
+  stopInitStatusPolling();
+  isVideoInitializing = false;
+  
+  // Clear chat messages if window exists
+  if (chatWindow) {
+    const messagesArea = chatWindow.querySelector('#viddy-messages');
+    if (messagesArea) {
+      messagesArea.innerHTML = '';
+    }
+  }
+  
+  console.log('[clearChatSession] Chat session cleared for new video');
+}
+
 function closeChatWindow() {
   if (chatWindow) {
     chatWindow.style.display = 'none';
     isChatOpen = false;
+    
+    // Restore video player to its original state if needed
+    const player = document.querySelector('.html5-video-player');
+    if (player) {
+      // Only restore if we're not in a state where we need relative positioning
+      // (e.g., if the arrow is still present)
+      const arrow = document.getElementById('viddy-arrow');
+      if (!arrow) {
+        player.style.position = '';
+      }
+    }
   }
 }
 
@@ -688,12 +830,133 @@ function removeArrow() {
     chatWindow = null;
     isChatOpen = false;
   }
+  
+  // Stop any ongoing initialization polling
+  stopInitStatusPolling();
+  isVideoInitializing = false;
 }
 
-function tryInjectIfEnabled(enabled) {
+async function checkVideoChange() {
+  const newVideoId = extractVideoId();
+  
+  // If we have a previous video ID and it's different from the current one
+  if (currentVideoId && newVideoId && currentVideoId !== newVideoId) {
+    console.log('[checkVideoChange] Video changed from', currentVideoId, 'to', newVideoId);
+    clearChatSession();
+    
+    // Close chat window if it's open
+    if (isChatOpen) {
+      closeChatWindow();
+    }
+    
+    // Initialize the new video
+    await initializeVideo(newVideoId);
+  } else if (newVideoId && !currentVideoId) {
+    // First time loading a video (currentVideoId is null/undefined)
+    console.log('[checkVideoChange] First video loaded:', newVideoId);
+    await initializeVideo(newVideoId);
+  }
+  
+  // Update current video ID
+  currentVideoId = newVideoId;
+}
+
+async function initializeVideo(videoId) {
+  try {
+    console.log('[initializeVideo] INITIALIZING VIDEO:', videoId);
+    isVideoInitializing = true;
+    
+    const response = await fetch('https://viddy-backend.onrender.com/api/init_video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoId: videoId })
+    });
+
+    const data = await response.json();
+    console.log('[initializeVideo] Response:', data);
+    
+    if (data.status === 'error') {
+      console.error('[initializeVideo] Error initializing video:', data.message);
+      isVideoInitializing = false;
+      updateChatTitle('error');
+    } else {
+      console.log('[initializeVideo] Video initialization started:', data.message);
+      updateChatTitle('initializing');
+      // Start polling for initialization status
+      startInitStatusPolling(videoId);
+    }
+    
+  } catch (error) {
+    console.error('[initializeVideo] Failed to initialize video:', error);
+    isVideoInitializing = false;
+  }
+}
+
+async function checkVideoStatus(videoId) {
+  try {
+    const response = await fetch(`https://viddy-backend.onrender.com/api/video_status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ videoId }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to check video status:', error);
+    throw error;
+  }
+}
+
+function startInitStatusPolling(videoId) {
+  // Clear any existing polling
+  stopInitStatusPolling();
+  
+  console.log('[startInitStatusPolling] Starting to poll for video initialization status');
+  
+  // Poll every 2 seconds
+  initStatusPollingInterval = setInterval(() => {
+    checkVideoStatus(videoId);
+  }, 2000);
+  
+  // Also check immediately
+  checkVideoStatus(videoId);
+}
+
+function stopInitStatusPolling() {
+  if (initStatusPollingInterval) {
+    clearInterval(initStatusPollingInterval);
+    initStatusPollingInterval = null;
+    console.log('[stopInitStatusPolling] Stopped polling for initialization status');
+  }
+}
+
+function updateChatTitle(status) {
+  const title = document.getElementById('viddy-chat-title');
+  if (title) {
+    if (status === 'initializing') {
+      title.textContent = 'Viddy Chat ⏳';
+    } else if (status === 'ready') {
+      title.textContent = 'Viddy Chat ✅';
+    } else if (status === 'error') {
+      title.textContent = 'Viddy Chat ❌';
+    } else {
+      title.textContent = 'Viddy Chat';
+    }
+  }
+}
+
+async function tryInjectIfEnabled(enabled) {
   const player = document.querySelector('.html5-video-player');
   if (player) {
     if (enabled) {
+      // Check for video change before injecting
+      await checkVideoChange();
       injectArrow(player);
     } else {
       removeArrow();
@@ -704,21 +967,35 @@ function tryInjectIfEnabled(enabled) {
 }
 
 (function main() {
-  chrome.storage.sync.get(['viddyEnabled'], (result) => {
+  // Initialize current video ID
+  currentVideoId = extractVideoId();
+  
+  chrome.storage.sync.get(['viddyEnabled'], async (result) => {
     const enabled = result.viddyEnabled !== false;
-    if (tryInjectIfEnabled(enabled)) return;
-    const observer = new MutationObserver(() => {
-      if (tryInjectIfEnabled(enabled)) observer.disconnect();
+    if (await tryInjectIfEnabled(enabled)) return;
+    const observer = new MutationObserver(async () => {
+      if (await tryInjectIfEnabled(enabled)) observer.disconnect();
     });
     observer.observe(document.body, { childList: true, subtree: true });
   });
 
-  chrome.storage.onChanged.addListener((changes, area) => {
+  chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area === 'sync' && 'viddyEnabled' in changes) {
       const enabled = changes.viddyEnabled.newValue !== false;
-      tryInjectIfEnabled(enabled);
+      await tryInjectIfEnabled(enabled);
     }
   });
+  
+  // Listen for URL changes (YouTube SPA navigation)
+  let lastUrl = location.href;
+  new MutationObserver(async () => {
+    const url = location.href;
+    if (url !== lastUrl) {
+      lastUrl = url;
+      console.log('[main] URL changed to:', url);
+      await checkVideoChange();
+    }
+  }).observe(document, { subtree: true, childList: true });
   
   // Global mouse handlers for drag and resize
   document.addEventListener('mousemove', (e) => {
